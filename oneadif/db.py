@@ -89,8 +89,7 @@ class DBConn:
 
     def connect(self):
         try:
-            self.conn = psycopg2.connect(self.dsn, \
-                    timeout=18000)
+            self.conn = psycopg2.connect(self.dsn)
             init_connection(self.conn)
             logging.debug('db connection was created')
         except Exception:
@@ -118,6 +117,7 @@ class DBConn:
                     True)
         return res
 
+
     def execute(self, sql, params=None, keys=None, progress=None):
         res = False
         with self.conn.cursor() as cur:
@@ -130,7 +130,6 @@ class DBConn:
                     res = to_dict(cur, keys)\
                         if cur.description != None else True
                 else:
-                    cur.execute('begin transaction;')
                     cnt = 0
                     cnt0 = 0
                     for item in params:
@@ -141,19 +140,17 @@ class DBConn:
                             cnt0 = 0
                             if progress:
                                 logging.debug(str(cnt) + '/' + str(len(params)))
-                    cur.execute('commit transaction;')
                     res = True
+                self.conn.commit()
             except Exception as exc:
-                if cur.connection.get_transaction_status() !=\
-                        TRANSACTION_STATUS_IDLE:
-                    cur.execute('rollback transaction;')
+                self.conn.rollback()
                 trap_db_exception(exc, sql, params)
         return res
 
-    def get_object(self, table, params, create=False, never_create=False):
+    def get_object(self, table, params, create=None):
         sql = ''
         res = False
-        if not create:
+        if create != True:
             sql = "select * from %s where %s" %\
                 (table,\
                 " and ".join([k + " = %(" + k + ")s"\
@@ -161,7 +158,7 @@ class DBConn:
                     else k + " is null"\
                     for k in params.keys()]))
             res = self.execute(sql, params)
-        if create or (not res and not never_create):
+        if create or (not res and create != False):
             keys = params.keys()
             sql = "insert into " + table + " (" + \
                 ", ".join(keys) + ") values (" + \
