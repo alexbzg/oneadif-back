@@ -20,7 +20,7 @@ API_URI = 'https://dev.oneadif.com/api/'
 
 LOGGER = logging.getLogger(__name__)
 
-def test_register_user():
+def test_register_login():
     user_data = {
         'login': 'test_reg_usr',
         'password': '11111111',
@@ -29,7 +29,6 @@ def test_register_user():
     DB.execute('delete from users where login = %(login)s', user_data)
     DB.conn.commit()
     req = requests.post(API_URI + 'register_user', json=user_data)
-    LOGGER.debug(req.text)
     req.raise_for_status()
     srv_data = json.loads(req.text)
     assert srv_data
@@ -44,7 +43,27 @@ def test_register_user():
     LOGGER.debug(req.text)
     DB.execute('delete from users where login = %(login)s', user_data)
     DB.conn.commit()
+    req = requests.post(API_URI + 'register_user', json=user_data)
+    req.raise_for_status()
+    login = user_data['login']
     del user_data['login']
     req = requests.post(API_URI + 'register_user', json=user_data)
     assert req.status_code == 400
+    user_data['login'] = login
+    del user_data['email']
+    req = requests.post(API_URI + 'login', json=user_data)
+    req.raise_for_status()
+    srv_data = json.loads(req.text)
+    assert srv_data
+    assert srv_data['token']
+    user_data['password'] += '___'
+    req = requests.post(API_URI + 'login', json=user_data)
+    assert req.status_code == 400
+    LOGGER.debug(req.text)
+    del user_data['password']
+    req = requests.post(API_URI + 'login', json=user_data)
+    assert req.status_code == 400
+    LOGGER.debug(req.text)
+
+
 

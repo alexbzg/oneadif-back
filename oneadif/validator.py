@@ -4,7 +4,7 @@
 import logging
 from functools import wraps
 
-from flask import request, current_app, abort
+from flask import request, current_app, jsonify
 
 import jsonschema
 import requests
@@ -12,6 +12,12 @@ import simplejson as json
 
 from conf import CONF
 from json_utils import load_json
+
+def bad_request(message):
+    'Bad request helper function'
+    response = jsonify({'message': message})
+    response.status_code = 400
+    return response
 
 def check_recaptcha(response):
     """queries google for recaptcha validity
@@ -41,7 +47,6 @@ def _validate_dict(data, schema):
         logging.error(exc.message)
         return False
 
-
 def validate(json_schema=None, recaptcha_field=None):
     """validates flask request object by all relevant means
     returns true/false"""
@@ -52,9 +57,7 @@ def validate(json_schema=None, recaptcha_field=None):
         def wrapped(*args, **kwargs):
             if json_schema:
                 if not _validate_dict(request.get_json(), json_schema):
-                    logging.debug('json validation failed')
-                    return abort(400)
-                logging.debug('json was validated successfully')
+                    return bad_request('Invalid request data.')
             if recaptcha_field and current_app.config['ENV'] != 'development':
                 json_data = request.get_json()
                 if recaptcha_field not in json_data or\

@@ -6,7 +6,7 @@ import logging
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import InternalServerError
 
-from validator import validate
+from validator import validate, bad_request
 from db import DBConn
 from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
@@ -23,14 +23,10 @@ DB = DBConn(CONF.items('db'))
 DB.connect()
 DB.verbose = True
 
-def bad_request(message):
-    logging.debug('bad_request entry')
-    response = jsonify({'message': message})
-    response.status_code = 400
-    return response
 
 @APP.errorhandler(InternalServerError)
 def internal_error(exception):
+    'Internal server error interceptor; logs exception'
     response = jsonify({'message': 'Server error'})
     response.status_code = 500
     logging.exception(exception)
@@ -42,7 +38,7 @@ def test():
     return "Ok %s" % request.method
 
 @APP.route('/api/register_user', methods=['POST'])
-@validate(json_schema='register_user', recaptcha_field='recaptcha')
+@validate(json_schema='login', recaptcha_field='recaptcha')
 def register_user():
     """registers user and returns user data with token"""
     user_data = request.get_json()
@@ -52,6 +48,12 @@ def register_user():
                 'This username is already exists.')
     return send_user_data(request.get_json(), create=True)
 
+@APP.route('/api/login', methods=['POST'])
+@validate(json_schema='login')
+def login():
+    """check login data and returns user data with token"""
+    return send_user_data(request.get_json())
+
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
     data = DB.get_object('users', user_data, create=create)
@@ -60,7 +62,11 @@ def send_user_data(user_data, create=False):
         data['token'] = token
         return jsonify(data)
     else:
-        abort(500)
+        if create:
+            raise Exception("User creation failed")
+        else:
+            return bad_request('Неверное имя пользователя или пароль.\n' +\
+                    'Wrong username or password')
 
 if __name__ == "__main__":
     APP.run(host='127.0.0.1')
