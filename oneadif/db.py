@@ -17,13 +17,13 @@ def to_dict(cur, keys=None):
     if cur and cur.rowcount:
         columns_names = [col.name for col in cur.description]
         if cur.rowcount == 1 and not keys:
-            data = yield from cur.fetchone()
+            data = cur.fetchone()
             if len(columns_names) == 1:
                 return data[0]
             else:
                 return dict(zip(columns_names, data))
         else:
-            data = yield from cur.fetchall()
+            data = cur.fetchall()
             if ('id' in columns_names) and keys:
                 id_idx = columns_names.index('id')
                 return {row[id_idx]: dict(zip(columns_names, row)) \

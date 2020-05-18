@@ -56,7 +56,6 @@ def validate(json_schema=None, recaptcha_field=None):
                     return abort(400)
                 logging.debug('json was validated successfully')
             if recaptcha_field and current_app.config['ENV'] != 'development':
-                logging.debug('recaptcha check is started')
                 json_data = request.get_json()
                 if recaptcha_field not in json_data or\
                     not check_recaptcha(json_data[recaptcha_field]):
