@@ -40,7 +40,7 @@ def test():
     return "Ok %s" % request.method
 
 @APP.route('/api/register_user', methods=['POST'])
-@validate(json_schema='login', recaptcha_field='recaptcha')
+@validate(request_schema='login', recaptcha_field='recaptcha')
 def register_user():
     """registers user and returns user data with token"""
     user_data = request.get_json()
@@ -51,13 +51,13 @@ def register_user():
     return send_user_data(user_data, create=True)
 
 @APP.route('/api/login', methods=['POST'])
-@validate(json_schema='login')
+@validate(request_schema='login')
 def login():
     """check login data and returns user data with token"""
     return send_user_data(request.get_json())
 
 @APP.route('/api/password_recovery_request', methods=['POST'])
-@validate(json_schema='passwordRecovery', recaptcha_field='recaptcha')
+@validate(request_schema='passwordRecoveryRequest', recaptcha_field='recaptcha')
 def password_recovery_request():
     """check login data and returns user data with token"""
     req_data = request.get_json()
@@ -67,7 +67,7 @@ def password_recovery_request():
             'The username or email address is not registered.')
     token = create_token({
         'login': req_data['callsign'],
-        'special': 'passwordRecovery',
+        'type': 'passwordRecovery',
         'expires': time.time() + 60 * 60 * 60})
     text = """Пройдите по ссылкe, чтобы сменить пароль на CFMRDA.ru: """\
         + CONF.get('web', 'address')\
@@ -93,6 +93,24 @@ Ignore this message if you did not request password change
         'сменен пароля.\n' +\
         'The message with password change instrunctions was sent to your ' +\
         'email address'})
+
+def ok_response():
+    return jsonify({'message': 'Ok'})
+
+@APP.route('/api/password_recovery', methods=['POST'])
+@validate(request_schema='login', token_schema='passwordRecovery', recaptcha_field='recaptcha')
+def password_recovery():
+    """check login data and returns user data with token"""
+    req_data = request.get_json()
+    user_data = DB.get_object('users', {'login': req_data['login']})
+    if user_data:
+        if not DB.param_update('users',\
+            {'login': req_data['login']}, {'password': req_data['password']}):
+            raise Exception('Password change failed')
+        return ok_response()
+    else:
+        return bad_request('Пользователь не зарегистрирован.\n' +\
+            'The username is not registered.')
 
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
