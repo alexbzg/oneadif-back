@@ -84,14 +84,24 @@ def validate(request_schema=None, token_schema=None, recaptcha_field=None):
                 if token_schema:
                     if 'token' in request_data and request_data['token']:
                         token_data = decode_token(request_data['token'])
+                        logging.debug('token deciphered:')
+                        logging.debug(token_data)
+                        logging.debug('current time: ')
+                        logging.debug(time.time())
                         validated, error = token_validator(token_data, token_schema)
                         if not validated or\
                             ('expires' in token_data and token_data['expires'] < time.time()) or\
                             token_data['login'] != request_data['login']:
                             error_message = 'Неверные или устаревшие данные аутентификации. ' +\
                                 'Попробуйте перелогиниться и/или повторить операцию.\n' +\
-                                'Invalid or obsolete authentification data.' +\
+                                'Invalid or obsolete authentification data. ' +\
                                 'Try relogin and/or repeat the operation.'
+                    else:
+                        error_message = 'Отсутствуют данные аутентификации. ' +\
+                            'Попробуйте перелогиниться и/или повторить операцию.\n' +\
+                            'No authentification data. ' +\
+                            'Try relogin and/or repeat the operation.'
+
             else:
                 error_message = 'No request data found.'
 

@@ -25,6 +25,8 @@ DB = DBConn(CONF.items('db'))
 DB.connect()
 DB.verbose = True
 
+def _create_token(data):
+    return create_token(data, APP.secret_key)
 
 @APP.errorhandler(InternalServerError)
 def internal_error(exception):
@@ -61,22 +63,22 @@ def login():
 def password_recovery_request():
     """check login data and returns user data with token"""
     req_data = request.get_json()
-    user_data = DB.get_object('users', req_data)
+    user_data = DB.get_object('users', req_data, create=False)
     if not user_data or not user_data['email']:
         return bad_request('Пользователь или email не зарегистрирован.\n' +\
             'The username or email address is not registered.')
-    token = create_token({
-        'login': req_data['callsign'],
+    token = _create_token({
+        'login': req_data['login'],
         'type': 'passwordRecovery',
         'expires': time.time() + 60 * 60 * 60})
-    text = """Пройдите по ссылкe, чтобы сменить пароль на CFMRDA.ru: """\
+    text = """Пройдите по ссылкe, чтобы сменить пароль на ONEADIF.com: """\
         + CONF.get('web', 'address')\
         + '/#/passwordRecovery?token=' + token + """
 
 Если вы не запрашивали смену пароля на ONEADIF.com, просто игнорируйте это письмо.
 Ссылка будет действительна в течение 1 часа.
 
-Open this link to change your ONEADIF.com password: """ \
+Follow this link to change your ONEADIF.com password: """ \
         + CONF.get('web', 'address')\
         + '/#/passwordRecovery?token=' + token + """
 
@@ -102,7 +104,7 @@ def ok_response():
 def password_recovery():
     """check login data and returns user data with token"""
     req_data = request.get_json()
-    user_data = DB.get_object('users', {'login': req_data['login']})
+    user_data = DB.get_object('users', {'login': req_data['login']}, create=None)
     if user_data:
         if not DB.param_update('users',\
             {'login': req_data['login']}, {'password': req_data['password']}):
@@ -116,7 +118,7 @@ def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
     data = DB.get_object('users', user_data, create=create)
     if data:
-        token = create_token({'login': data['login']})
+        token = _create_token({'login': data['login']})
         del data['password']
         data['token'] = token
         return jsonify(data)
