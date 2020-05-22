@@ -13,7 +13,7 @@ CHARS = string.ascii_letters + string.digits
 
 sys.path.append('oneadif')
 from secret import get_secret, create_token
-from db import DBConn
+from db import DBConn, splice_params
 from conf import CONF
 
 DB = DBConn(CONF.items('db'))
@@ -41,6 +41,12 @@ def update_data(data, update):
             else:
                 data[field] = update[field]
 
+def cmp_data(db_data, post_data):
+    assert db_data
+    for key in post_data:
+        assert key in db_data
+        assert db_data[key] == post_data[key]
+
 def test_register_login():
     user_data = {
         'login': 'test_reg_usr',
@@ -48,7 +54,6 @@ def test_register_login():
         'email': 'test@test.com'
         }
     DB.execute('delete from users where login = %(login)s', user_data)
-    DB.conn.commit()
     req = requests.post(API_URI + 'register_user', json=user_data)
     req.raise_for_status()
     srv_data = json.loads(req.text)
@@ -63,7 +68,6 @@ def test_register_login():
     assert req.status_code == 400
     LOGGER.debug(req.text)
     DB.execute('delete from users where login = %(login)s', user_data)
-    DB.conn.commit()
     req = requests.post(API_URI + 'register_user', json=user_data)
     req.raise_for_status()
     login = user_data['login']
@@ -86,7 +90,6 @@ def test_register_login():
     assert req.status_code == 400
     LOGGER.debug(req.text)
     DB.execute('delete from users where login = %(login)s', user_data)
-    DB.conn.commit()
 
 def test_password_recovery_request():
     #request
@@ -148,4 +151,39 @@ def test_password_recovery():
     req = post(update_post={'token': '___DELETE___'})
     assert req.status_code == 400
     logging.debug(req.text)
+    DB.param_update('users', {'login': LOGIN}, {'password': PASSWORD})
+
+def test_account():
+    #elogs accounts management
+    data = {}
+    token_data = {
+        'login': LOGIN,
+        'type': 'auth'}
+    post_data = {'login': LOGIN, 
+        'token': _create_token(token_data), 
+        'elog': 'test',
+        'login_data': {'foo': 'bar'}}
+    acc_key = splice_params(post_data, ('login', 'elog'))
+    DB.param_delete('accounts', acc_key)
+    #--create
+    req = requests.post(API_URI + 'account', json=post_data)
+    req.raise_for_status()
+    db_data = DB.get_object('accounts', acc_key, create=False)
+    assert db_data
+    cmp_data(db_data['login_data'], post_data['login_data'])
+    #--update
+    post_data['login_data'] = {'snafu': 'foobar'}
+    req = requests.post(API_URI + 'account', json=post_data)
+    req.raise_for_status()
+    db_data = DB.get_object('accounts', acc_key, create=False)
+    assert db_data
+    cmp_data(db_data['login_data'], post_data['login_data'])
+    #--delete
+    del post_data['login_data']
+    req = requests.delete(API_URI + 'account', json=post_data)
+    req.raise_for_status()
+    db_data = DB.get_object('accounts', acc_key, create=False)
+    assert not db_data
+
+
 

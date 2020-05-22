@@ -58,7 +58,7 @@ def decode_token(token):
     except jwt.exceptions.DecodeError:
         return None
 
-def validate(request_schema=None, token_schema=None, recaptcha_field=None):
+def validate(request_schema=None, token_schema=None, recaptcha_field=None, login=False):
     """validates flask request object by all relevant means
     returns true/false"""
 
@@ -101,6 +101,11 @@ def validate(request_schema=None, token_schema=None, recaptcha_field=None):
                             'Попробуйте перелогиниться и/или повторить операцию.\n' +\
                             'No authentification data. ' +\
                             'Try relogin and/or repeat the operation.'
+                if login:
+                    user_data = current_app.db.get_object('users', {'login': request_data['login']}, create=None)
+                    if not user_data:
+                        error_message = 'Пользователь не зарегистрирован.\n' +\
+                            'The username is not registered.'
 
             else:
                 error_message = 'No request data found.'

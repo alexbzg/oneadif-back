@@ -107,16 +107,14 @@ class DBConn:
                 " where " + params_str(id_params, ' and ') +\
                 " returning *", id_params)
 
-    def param_update_insert(self, table, id_params, upd_params):
-        lookup = self.get_object(table, id_params, False, True)
+    def param_upsert(self, table, id_params, upd_params):
+        lookup = self.get_object(table, id_params, create=False)
         res = None
         if lookup:
             res = self.param_update(table, id_params, upd_params)
         else:
-            res = self.get_object(table, dict(id_params, **upd_params),\
-                    True)
+            res = self.get_object(table, dict(id_params, **upd_params), create=True)
         return res
-
 
     def execute(self, sql, params=None, keys=None, progress=None):
         res = False

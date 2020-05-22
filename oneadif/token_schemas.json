@@ -1,0 +1,37 @@
+{
+"passwordRecovery": {
+    "type": "object",
+    "properties": {
+        "login": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 16
+        },
+        "type": {
+            "type": "string",
+            "enum": ["passwordRecovery"]
+        },
+        "expires": {
+            "type": "number"
+        }
+    }, 
+    "required": ["login", "expires", "type"]
+},
+"auth": {
+    "type": "object",
+    "properties": {
+        "login": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 16
+        },
+        "type": {
+            "type": "string",
+            "enum": ["auth"]
+        }
+    }, 
+    "required": ["login", "type"]
+}
+
+
+}

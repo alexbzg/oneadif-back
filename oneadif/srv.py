@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify
 from werkzeug.exceptions import InternalServerError
 
 from validator import validate, bad_request
-from db import DBConn
+from db import DBConn, splice_params
 from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
 import send_email
@@ -24,6 +24,7 @@ logging.debug('starting in debug mode')
 DB = DBConn(CONF.items('db'))
 DB.connect()
 DB.verbose = True
+APP.db = DB
 
 def _create_token(data):
     return create_token(data, APP.secret_key)
@@ -100,25 +101,37 @@ def ok_response():
     return jsonify({'message': 'Ok'})
 
 @APP.route('/api/password_recovery', methods=['POST'])
-@validate(request_schema='login', token_schema='passwordRecovery', recaptcha_field='recaptcha')
+@validate(request_schema='login', token_schema='passwordRecovery', recaptcha_field='recaptcha',\
+        login=True)
 def password_recovery():
     """check login data and returns user data with token"""
     req_data = request.get_json()
-    user_data = DB.get_object('users', {'login': req_data['login']}, create=None)
-    if user_data:
-        if not DB.param_update('users',\
-            {'login': req_data['login']}, {'password': req_data['password']}):
-            raise Exception('Password change failed')
-        return ok_response()
+    if not DB.param_update('users',\
+        {'login': req_data['login']}, {'password': req_data['password']}):
+        raise Exception('Password change failed')
+    return ok_response()
+
+def splice_request(*params):
+    return splice_params(request.get_json(), params)
+
+@APP.route('/api/account', methods=['POST', 'DELETE'])
+@validate(request_schema='account', token_schema='auth', login=True)
+def account():
+    """checks login data and returns user data with token"""
+    account_key = splice_request('login', 'elog')
+    if request.method == 'POST':
+        if not DB.param_upsert('accounts', account_key, splice_request('login_data')):
+            raise Exception('Account update or creation failed')
     else:
-        return bad_request('Пользователь не зарегистрирован.\n' +\
-            'The username is not registered.')
+        if not DB.param_delete('accounts', account_key):
+            raise Exception('Account delete failed')
+    return ok_response()
 
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
     data = DB.get_object('users', user_data, create=create)
     if data:
-        token = _create_token({'login': data['login']})
+        token = _create_token({'login': data['login'], 'type': 'auth'})
         del data['password']
         data['token'] = token
         return jsonify(data)
