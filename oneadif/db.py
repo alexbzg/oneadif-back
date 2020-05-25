@@ -47,7 +47,7 @@ def params_str(params, str_delim):
     """converts params dict to string for appending to sql"""
     return str_delim.join([x + " = %(" + x + ")s" for x in params.keys()])
 
-def splice_params(data, params):
+def splice_params(data, *params):
     """splices dict and converts subdicts to json strings"""
     return {param: json.dumps(data[param]) \
             if isinstance(data[param], dict) else data[param] \

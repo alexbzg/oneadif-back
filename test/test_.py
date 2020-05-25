@@ -159,24 +159,36 @@ def test_account():
     token_data = {
         'login': LOGIN,
         'type': 'auth'}
+    login_data = {'callsign': 'TEST1ADIF', 'password': '18231823'}
     post_data = {'login': LOGIN, 
         'token': _create_token(token_data), 
-        'elog': 'test',
-        'login_data': {'foo': 'bar'}}
-    acc_key = splice_params(post_data, ('login', 'elog'))
+        'elog': 'dev.cfmrda',
+        'login_data': login_data}
+    login_data['password'] += '_'
+    acc_key = splice_params(post_data, 'login', 'elog')
     DB.param_delete('accounts', acc_key)
-    #--create
+    #--create / wrong elog password
     req = requests.post(API_URI + 'account', json=post_data)
     req.raise_for_status()
+    logging.debug(req.text)
+    rsp_data = req.json()
+    assert 'status' in rsp_data
+    assert not rsp_data['status']
     db_data = DB.get_object('accounts', acc_key, create=False)
     assert db_data
+    del db_data['status']
     cmp_data(db_data['login_data'], post_data['login_data'])
-    #--update
-    post_data['login_data'] = {'snafu': 'foobar'}
+    #--update / good elog password
+    post_data['login_data']['password'] = '18231823'
     req = requests.post(API_URI + 'account', json=post_data)
     req.raise_for_status()
+    logging.debug(req.text)
+    rsp_data = req.json()
+    assert 'status' in rsp_data
+    assert rsp_data['status']
     db_data = DB.get_object('accounts', acc_key, create=False)
     assert db_data
+    del db_data['status']
     cmp_data(db_data['login_data'], post_data['login_data'])
     #--delete
     del post_data['login_data']
@@ -184,6 +196,5 @@ def test_account():
     req.raise_for_status()
     db_data = DB.get_object('accounts', acc_key, create=False)
     assert not db_data
-
-
-
+    post_data['login_data'] = login_data
+    req = requests.post(API_URI + 'account', json=post_data)

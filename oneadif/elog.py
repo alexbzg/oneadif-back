@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 #coding=utf-8
 """class for working with web-loggers. Currenly supported: LOTW"""
+import logging
+
 import requests
 import simplejson as json
 
@@ -20,7 +22,7 @@ class ELog():
             'eQSL': {\
                  'loginDataFields': ['Callsign', 'EnteredPassword'],\
                  'schema': 'extLoggersLoginEQSL'\
-                }\
+                }
             }
 
     states = {0: 'OK',\
@@ -65,9 +67,11 @@ class ELog():
                 raise ELogException("Login failed.")
 
         elif self.type == 'dev.cfmrda':
-            rsp = ssn.post('https://dev.cfmrda.ru/aiohttp/login', data=data)
+            data.update({'mode': 'login'})
+            rsp = ssn.post('https://dev.cfmrda.ru/aiohttp/login', data=json.dumps(data))            
             rsp.raise_for_status()
-            self.auth_token = json.dumps(rsp.text)['token']
+            rsp_data = rsp.json()
+            self.auth_token = rsp_data['token']
 
         self.login_data = login_data
         self.session = ssn

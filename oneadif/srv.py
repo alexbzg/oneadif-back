@@ -12,6 +12,7 @@ from db import DBConn, splice_params
 from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
 import send_email
+from elog import ELog
 
 APP = Flask(APP_NAME)
 APP.config.update(CONF['flask'])
@@ -112,16 +113,26 @@ def password_recovery():
     return ok_response()
 
 def splice_request(*params):
-    return splice_params(request.get_json(), params)
+    return splice_params(request.get_json(), *params)
 
 @APP.route('/api/account', methods=['POST', 'DELETE'])
 @validate(request_schema='account', token_schema='auth', login=True)
 def account():
     """checks login data and returns user data with token"""
-    account_key = splice_request('login', 'elog')
+    req_data = request.get_json()
+    account_key = splice_params(req_data, 'login', 'elog')
     if request.method == 'POST':
-        if not DB.param_upsert('accounts', account_key, splice_request('login_data')):
+        elog = ELog(account_key['elog'])
+        status = False
+        try:
+            status = bool(elog.login(req_data['login_data']))
+        except Exception:
+            logging.exception(req_data['elog'] + ' login error')
+        account_data = splice_params(req_data, 'login_data')
+        account_data['status'] = status
+        if not DB.param_upsert('accounts', account_key, account_data):
             raise Exception('Account update or creation failed')
+        return jsonify({'status': status})
     else:
         if not DB.param_delete('accounts', account_key):
             raise Exception('Account delete failed')
