@@ -100,17 +100,18 @@ class ELog():
 
         return ssn
 
-    def upload(self, upload_data, callback):
+    def upload(self, file, params, callback):
 
         data = {}
-        data.update(upload_data)
+        data.update(params)
         url = None
 
         if self.type == 'dev.cfmrda':
             data.update({
                 'stationCallsignFieldEnable': True,
                 'rdaFieldEnable': True,
-                'token': self.auth_token
+                'token': self.auth_token,
+                'files': [file]
                 })
             url = 'https://dev.cfmrda.ru/aiohttp/adif'
             data = ProgressBufferReader(json.dumps(data), callback)
@@ -119,5 +120,7 @@ class ELog():
             rsp = requests.post(url, data=data)
             rsp.raise_for_status()
             logging.debug(rsp.text)
+            return True
         except Exception:
             logging.exception(self.type + ' upload error')
+            return False

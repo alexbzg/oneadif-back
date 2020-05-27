@@ -30,9 +30,9 @@ with open(os.path.dirname(os.path.abspath(__file__)) + '/adif/' + FILENAME, 'r')
 DATA = {
     'dev.cfmrda': {
         'stationCallsignField': 'OPERATOR',
-        'rdaField': 'STATE',
-        'files': [{'name': FILENAME, 'file': adif}]}
-    }
+        'rdaField': 'STATE'
+    }}
+FILE = {'name': FILENAME, 'file': adif}
 
 def test_upload():
     accounts = DB.execute("select * from accounts where login = %(login)s", {'login': LOGIN}, keys=True)
@@ -41,6 +41,6 @@ def test_upload():
         elog = ELog(elog_type)
         assert elog.login(account['login_data'])
         if elog_type in DATA:
-            elog.upload(DATA[elog_type], upload_callback)
+            elog.upload(FILE, DATA[elog_type], upload_callback)
 
 

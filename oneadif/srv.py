@@ -3,6 +3,8 @@
 """onedif backend"""
 import logging
 import time
+import threading
+import uuid
 
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import InternalServerError
@@ -13,10 +15,11 @@ from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
 import send_email
 from elog import ELog
+from json_utils import load_json, save_json
 
 APP = Flask(APP_NAME)
 APP.config.update(CONF['flask'])
-APP.secret_key = get_secret(CONF.get('files', 'secret'))
+APP.secret_key = get_secret(CONF['files']['secret'])
 
 with APP.app_context():
     start_logging('srv', CONF['logs']['srv_level'])
@@ -26,6 +29,59 @@ DB = DBConn(CONF.items('db'))
 DB.connect()
 DB.verbose = True
 APP.db = DB
+UPLOADS_FILE_PATH = CONF['web']['root'] + '/uploads.json'
+
+class UploadThread(threading.Thread):
+    def __init__(self, elog_type, login_data, file, params):
+        self.id = uuid.uuid1()
+        self.elog_type = elog_type
+        self.login_data = login_data
+        self.file = file
+        self.params = params
+        self.__progress = 0
+        self.__state = 'init'
+        self.__export_status()
+        super().__init__()
+
+    def __export_status(self):
+        status_data = load_json(UPLOADS_FILE_PATH)
+        if not status_data:
+            status_data = {}
+        status_data[self.id] = {'state': self.state, 'progress': self.progress, 'time': time.time()}
+        save_json(status_data, UPLOADS_FILE_PATH)
+
+    @property
+    def state(self):
+        return self.__state
+
+    @state.setter
+    def state(self, value):
+        self.__state = value
+        self.__export_status()
+
+    @property
+    def progress(self):
+        return self.__progress
+
+    @progress.setter
+    def progress(self, value):
+        self.__progress = value
+        self.__export_status()
+
+    def upload_callback(self, progress):
+        self.progress = progress
+
+    def run(self):
+        self.state = 'login'
+        elog = ELog(self.elog_type)
+        if elog.login(self.login_data):
+            self.state = 'upload'
+            if elog.upload(self.file, self.params, self.upload_callback):
+                self.state = 'success'
+            else:
+                self.state = 'upload failed'
+        else:
+            self.state = 'login failed'
 
 def _create_token(data):
     return create_token(data, APP.secret_key)
@@ -137,6 +193,25 @@ def account():
         if not DB.param_delete('accounts', account_key):
             raise Exception('Account delete failed')
     return ok_response()
+
+@APP.route('/api/upload', methods=['POST', 'DELETE'])
+@validate(request_schema='upload', token_schema='auth', login=True)
+def upload():
+    req_data = request.get_json()
+    uploads = {}
+    for upload_data in req_data['uploads']:
+        elog_type = upload_data['elog']
+        account_data = DB.get_object('accounts',\
+                {'login': req_data['login'], 'elog': elog_type},\
+                create=False)
+        if account_data['status']:
+            upload_thread = UploadThread(elog_type,\
+                    account_data['login_data'],\
+                    upload_data['file'],\
+                    upload_data['params'])
+            uploads[elog_type] = upload_thread.id
+
+    return jsonify(uploads)
 
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
