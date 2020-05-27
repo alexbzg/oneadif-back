@@ -15,7 +15,6 @@ from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
 import send_email
 from elog import ELog
-from json_utils import load_json, save_json
 
 APP = Flask(APP_NAME)
 APP.config.update(CONF['flask'])
@@ -32,23 +31,36 @@ APP.db = DB
 UPLOADS_FILE_PATH = CONF['web']['root'] + '/uploads.json'
 
 class UploadThread(threading.Thread):
+    STATES = {\
+            'init': 0,\
+            'login': 1,\
+            'login failed': 2,\
+            'upload': 3,\
+            'upload failed': 4,\
+            'success': 5\
+            }
+
     def __init__(self, elog_type, login_data, file, params):
-        self.id = uuid.uuid1()
+        self.id = str(uuid.uuid1())
         self.elog_type = elog_type
         self.login_data = login_data
         self.file = file
         self.params = params
+        self.status_file_path = CONF['web']['root'] + '/uploads/' + self.id
         self.__progress = 0
         self.__state = 'init'
         self.__export_status()
         super().__init__()
 
     def __export_status(self):
-        status_data = load_json(UPLOADS_FILE_PATH)
-        if not status_data:
-            status_data = {}
-        status_data[self.id] = {'state': self.state, 'progress': self.progress, 'time': time.time()}
-        save_json(status_data, UPLOADS_FILE_PATH)
+        try:
+            with open(self.status_file_path, 'wb') as status_file:
+                status_bytes = [UploadThread.STATES[self.state], int(round(self.progress, 2)*100)]
+                logging.debug('upload ' + self.id + ' status: ')
+                logging.debug(status_bytes)
+                status_file.write(bytearray(status_bytes))
+        except:
+            logging.exception('export upload status error')
 
     @property
     def state(self):
@@ -56,6 +68,8 @@ class UploadThread(threading.Thread):
 
     @state.setter
     def state(self, value):
+        logging.debug('upload ' + self.id + ' state:')
+        logging.debug(self.state)
         self.__state = value
         self.__export_status()
 
@@ -69,9 +83,12 @@ class UploadThread(threading.Thread):
         self.__export_status()
 
     def upload_callback(self, progress):
+        logging.debug('upload ' + self.id + ' progress:')
+        logging.debug(progress)
         self.progress = progress
 
     def run(self):
+        logging.debug('upload ' + self.id + ' start')
         self.state = 'login'
         elog = ELog(self.elog_type)
         if elog.login(self.login_data):
@@ -207,9 +224,10 @@ def upload():
         if account_data['status']:
             upload_thread = UploadThread(elog_type,\
                     account_data['login_data'],\
-                    upload_data['file'],\
+                    req_data['file'],\
                     upload_data['params'])
             uploads[elog_type] = upload_thread.id
+            upload_thread.start()
 
     return jsonify(uploads)
 

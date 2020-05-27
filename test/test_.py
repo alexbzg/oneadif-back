@@ -9,6 +9,8 @@ import sys
 import string
 import time
 from random import sample, choice
+import base64
+import os
 CHARS = string.ascii_letters + string.digits
 
 sys.path.append('oneadif')
@@ -198,3 +200,46 @@ def test_account():
     assert not db_data
     post_data['login_data'] = login_data
     req = requests.post(API_URI + 'account', json=post_data)
+
+def test_upload():
+    token_data = {
+        'login': LOGIN,
+        'type': 'auth'}
+    filename = 'RZ3DC.adi'
+    adif = None
+    with open(os.path.dirname(os.path.abspath(__file__)) + '/adif/' + filename, 'rb') as _tf:
+        _adif = _tf.read()
+        adif = ',' + base64.b64encode(_adif).decode()
+    file = {'name': filename, 'file': adif}
+    post_data = {'login': LOGIN, 
+        'token': _create_token(token_data), 
+        'file': file,
+        'uploads': [{
+            'elog': 'dev.cfmrda', 
+            'params': {
+                'stationCallsignField': 'OPERATOR',
+                'rdaField': 'STATE'
+            }}]
+            }
+    req = requests.post(API_URI + 'upload', json=post_data)
+    logging.debug(req.text)
+    req.raise_for_status()
+    upload_id = req.json()['dev.cfmrda']
+    state = None
+    progress = 0
+    data = None
+    status_uri = CONF['web']['address'] + '/uploads/' + upload_id
+    while state not in (2, 4, 5):
+        status_rsp = requests.get(status_uri)
+        data = status_rsp.text
+        _state = ord(data[0])
+        _progress = ord(data[1])
+        if state != _state:
+            state = _state
+            logging.debug('State: ' + str(state))
+        if progress != _progress:
+            progress = _progress
+            logging.debug('Progress: ' + str(progress))
+        status_rsp.raise_for_status()
+
+
