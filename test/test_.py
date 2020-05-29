@@ -205,14 +205,15 @@ def test_upload():
     token_data = {
         'login': LOGIN,
         'type': 'auth'}
-    filename = 'RZ3DC.adi'
+    filename = 'RZ3DC MO-72.adi'
     adif = None
     with open(os.path.dirname(os.path.abspath(__file__)) + '/adif/' + filename, 'rb') as _tf:
         _adif = _tf.read()
         adif = ',' + base64.b64encode(_adif).decode()
     file = {'name': filename, 'file': adif}
+    token = _create_token(token_data)
     post_data = {'login': LOGIN, 
-        'token': _create_token(token_data), 
+        'token': token, 
         'file': file,
         'uploads': [{
             'elog': 'dev.cfmrda', 
@@ -230,16 +231,29 @@ def test_upload():
     data = None
     status_uri = CONF['web']['address'] + '/uploads/' + upload_id
     while state not in (2, 4, 5):
-        status_rsp = requests.get(status_uri)
-        data = status_rsp.text
-        _state = ord(data[0])
-        _progress = ord(data[1])
-        if state != _state:
-            state = _state
-            logging.debug('State: ' + str(state))
-        if progress != _progress:
-            progress = _progress
-            logging.debug('Progress: ' + str(progress))
-        status_rsp.raise_for_status()
+        try:
+            status_rsp = requests.get(status_uri)
+            data = status_rsp.text
+            if len(data) > 1:
+                _state = ord(data[0])
+                _progress = ord(data[1])
+                if state != _state:
+                    state = _state
+                    logging.debug('State: ' + str(state))
+                    if state == 3:
+                        cncl_rsp = requests.post(API_URI + 'upload_cancel',\
+                            json={\
+                                'login': LOGIN,
+                                'token': token,
+                                'id': upload_id})
+                        logging.debug(cncl_rsp.status_code)
+                        logging.debug(cncl_rsp.text)
+                        break
+                if progress != _progress:
+                    progress = _progress
+                    logging.debug('Progress: ' + str(progress))
+                status_rsp.raise_for_status()
+        except Exception:
+            logging.exception('bad upload status response')
 
 

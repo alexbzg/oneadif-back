@@ -17,8 +17,9 @@ def eqsl_date_format(_dt):
     return _dt.strftime('%m%%2F%d%%2F%Y')
 
 class ProgressBufferReader(io.BytesIO):
-    def __init__(self, buf, callback):
+    def __init__(self, buf, callback=None, cancel_event=None):
         self._callback = callback
+        self._cancel_event = cancel_event
         bbuf = buf.encode()
         self._len = len(bbuf)
         self._progress = 0
@@ -28,12 +29,12 @@ class ProgressBufferReader(io.BytesIO):
         return self._len
 
     def read(self, n=-1):
+        if self._cancel_event and self._cancel_event.is_set():
+            raise CancelledError('The upload was cancelled.')
         chunk = io.BytesIO.read(self, n)
         self._progress += int(len(chunk))
-        try:
+        if self._callback:
             self._callback(self._progress/self._len)
-        except: # catches exception from the callback
-            raise CancelledError('The upload was cancelled.')
         return chunk
 
 class ELog():
@@ -100,11 +101,12 @@ class ELog():
 
         return ssn
 
-    def upload(self, file, params, callback):
+    def upload(self, file, params, callback=None, cancel_event=None):
 
         data = {}
         data.update(params)
         url = None
+        data_string = None
 
         if self.type == 'dev.cfmrda':
             data.update({
@@ -114,10 +116,11 @@ class ELog():
                 'files': [file]
                 })
             url = 'https://dev.cfmrda.ru/aiohttp/adif'
-            data = ProgressBufferReader(json.dumps(data), callback)
+            data_string = json.dumps(data)
 
         try:
-            rsp = requests.post(url, data=data)
+            data_buffer = ProgressBufferReader(data_string, callback, cancel_event)
+            rsp = requests.post(url, data=data_buffer)
             rsp.raise_for_status()
             logging.debug(rsp.text)
             return True
