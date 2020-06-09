@@ -12,6 +12,7 @@ from multiprocessing.connection import Client
 sys.path.append('oneadif')
 from db import DBConn, splice_params
 from conf import CONF
+from upload_srv import upload_client
 
 DB = DBConn(CONF.items('db'))
 DB.verbose = True
@@ -35,11 +36,11 @@ def test_upload():
     accounts = DB.execute("select * from accounts where login = %(login)s", {'login': LOGIN}, keys=True)
     for account in accounts:
         upload_id = None
-        with Client(CONF['files']['upload_server_socket'], 'AF_UNIX') as conn:
+        with upload_client() as conn:
             conn.send(('upload', (account['account_id'], FILE, DATA[account['elog']])))
             upload_id = conn.recv()
             logging.debug('upload id: ' + str(upload_id))
-        with Client(CONF['files']['upload_server_socket'], 'AF_UNIX') as conn:
+        with upload_client() as conn:
             conn.send(('cancel', upload_id))
             rsp = conn.recv()
             logging.debug(rsp)

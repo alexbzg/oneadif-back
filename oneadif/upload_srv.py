@@ -2,7 +2,7 @@
 #coding=utf-8
 
 import multiprocessing
-from multiprocessing.connection import Listener
+from multiprocessing.connection import Listener, Client
 import threading
 import logging
 import time
@@ -190,6 +190,9 @@ def conn_worker(conn, _up=UPLOAD_PROCESSES):
 def __sigterm(signum, frame):
     logging.debug('Term signal')
     sys.exit(0)
+
+def upload_client():
+    return Client(CONF['files']['upload_server_socket'], 'AF_UNIX')
 
 def serve_forever(address, family):
     try:

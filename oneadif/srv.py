@@ -3,8 +3,6 @@
 """onedif backend"""
 import logging
 import time
-import threading
-import uuid
 
 from flask import Flask, request, jsonify
 from werkzeug.exceptions import InternalServerError
@@ -15,8 +13,7 @@ from conf import CONF, APP_NAME, start_logging
 from secret import get_secret, create_token
 import send_email
 from elog import ELog
-from cancellable_thread import async_raise, CancellableThread
-from json_utils import load_json, save_json
+from upload_srv import upload_client
 
 APP = Flask(APP_NAME)
 APP.config.update(CONF['flask'])
@@ -30,113 +27,6 @@ DB = DBConn(CONF.items('db'))
 DB.connect()
 DB.verbose = True
 APP.db = DB
-
-
-class UploadThreads():
-
-    def __init__(self, path):
-        self.__path = path
-
-    def __load(self):
-        return load_json(self.__path)
-
-    def __save(self, threads):
-        save_json(threads, self.__path)
-
-    def get(self, upload_id):
-        threads = self.__load()
-        if not threads or upload_id not in threads:
-            return None
-        else:
-            return threads[upload_id]
-
-    def set(self, upload_id, thread_data):
-        threads = self.__load()
-        if not threads:
-            threads = {}
-        threads[upload_id] = thread_data
-        self.__save(threads)
-
-    def delete(self, upload_id):
-        threads = self.__load()
-        if threads and upload_id in threads:
-            del threads[upload_id]
-            self.__save(threads)
-
-UPLOAD_THREADS = UploadThreads(CONF['files']['upload_threads'])
-
-class UploadThread(CancellableThread):
-    STATES = {\
-            'init': 0,\
-            'login': 1,\
-            'login failed': 2,\
-            'upload': 3,\
-            'upload failed': 4,\
-            'success': 5\
-            }
-
-    def __init__(self, elog_type, login_data, file, params):
-        self.upload_id = str(uuid.uuid1())
-        self.elog_type = elog_type
-        self.login_data = login_data
-        self.file = file
-        self.params = params
-        self.status_file_path = CONF['web']['root'] + '/uploads/' + self.upload_id
-        self.__progress = 0
-        self.__state = 'init'
-        self.__export_status()
-        super().__init__()
-
-    def __export_status(self):
-        with open(self.status_file_path, 'wb') as status_file:
-            status_bytes = [UploadThread.STATES[self.state], int(round(self.progress, 2)*100)]
-            status_file.write(bytearray(status_bytes))
-
-    @property
-    def state(self):
-        return self.__state
-
-    @state.setter
-    def state(self, value):
-        if self.__state != value:
-            logging.debug('upload ' + self.upload_id + ' state:')
-            logging.debug(self.state)
-            self.__state = value
-            self.__export_status()
-
-    @property
-    def progress(self):
-        return self.__progress
-
-    @progress.setter
-    def progress(self, value):
-        if self.__progress != value:
-            self.__progress = value
-            self.__export_status()
-
-    def upload_callback(self, progress):
-        logging.debug('upload ' + self.upload_id + ' progress:')
-        logging.debug(progress)
-        self.progress = progress
-
-    def run(self):
-        try:
-            logging.debug('upload ' + self.upload_id + ' start')
-            self.state = 'login'
-            elog = ELog(self.elog_type)
-            if elog.login(self.login_data):
-                self.state = 'upload'
-                if elog.upload(self.file, self.params, self.upload_callback):
-                    self.state = 'success'
-                else:
-                    self.state = 'upload failed'
-            else:
-                self.state = 'login failed'
-        except Exception:
-            self.state = 'internal error'
-            logging.exception('Upload thread error')
-        finally:
-            UPLOAD_THREADS.delete(self.upload_id)
 
 def _create_token(data):
     return create_token(data, APP.secret_key)
@@ -255,20 +145,10 @@ def upload():
     req_data = request.get_json()
     uploads = {}
     for upload_data in req_data['uploads']:
-        elog_type = upload_data['elog']
-        account_data = DB.get_object('accounts',\
-                {'login': req_data['login'], 'elog': elog_type},\
-                create=False)
-        if account_data['status']:
-            upload_thread = UploadThread(elog_type,\
-                    account_data['login_data'],\
-                    req_data['file'],\
-                    upload_data['params'])
-            uploads[elog_type] = upload_thread.upload_id
-            upload_thread.start()
-            UPLOAD_THREADS.set(upload_thread.upload_id,\
-                {'login': req_data['login'],\
-                'thread_id': upload_thread._get_my_tid()})
+        account_id = upload_data['account_id']
+        with upload_client() as conn:
+            conn.send(('upload', (account_id, req_data['file'], upload_data['params'])))
+            uploads[account_id] = conn.recv()
 
     return jsonify(uploads)
 
@@ -278,16 +158,10 @@ def upload_cancel():
     req_data = request.get_json()
     upload_id = req_data['id']
     logging.debug('upload cancel request: ' + upload_id)
-    thread_data = UPLOAD_THREADS.get(upload_id)
-    if thread_data:
-        if thread_data['login'] == req_data['login']:
-            async_raise(thread_data['thread_id'], SystemExit)
-        #    UPLOAD_THREADS.delete(upload_id)
-        else:
-            raise Exception('Not authenticated for this operation')
-    else:
-        raise Exception('Thread not found')
-    return ok_response()
+    with upload_client() as conn:
+        conn.send(('cancel', upload_id))
+        rsp = conn.recv()
+        return jsonify(rsp)
 
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""
