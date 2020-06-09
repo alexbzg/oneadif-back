@@ -12,7 +12,7 @@ import signal
 import sys
 from asyncio import CancelledError
 
-from db import DBConn, splice_params
+from db import DBConn
 from conf import CONF, start_logging
 from elog import ELog
 
@@ -24,9 +24,9 @@ DB.verbose = True
 class PipeListener(threading.Thread):
 
     def __init__(self, pipe, callback):
+        threading.Thread.__init__(self)
         self.__pipe = pipe
         self.__callback = callback
-        super().__init__(self)
 
     def run(self):
         while True:
@@ -41,7 +41,7 @@ class UploadConnector(PipeListener):
     def __init__(self, pipe, upload_process):
         self.upload_id = upload_process.upload_id
         self.__upload_process = upload_process
-        super().__init__(self, self.on_pipe_data)
+        super().__init__(pipe, self.on_pipe_data)
 
     def on_pipe_data(self, state):
         up_record = UPLOAD_PROCESSES[self.upload_id]
@@ -49,6 +49,8 @@ class UploadConnector(PipeListener):
         up_record['time'] = time.time()
         if state in ['login failed', 'upload failed', 'success', 'cancelled']:
             self.__upload_process.join()
+        DB.param_update('uploads', {'upload_id': self.upload_id}, {'state': state})
+        logging.debug('upload ' + self.upload_id + ' state: ' + state)
 
 class UploadProcess(multiprocessing.Process):
     STATES = {\
@@ -58,21 +60,31 @@ class UploadProcess(multiprocessing.Process):
             'upload': 3,\
             'upload failed': 4,\
             'success': 5,\
-            'cancelled': 6}
+            'cancelled': 6,\
+            'internal error': 7}
 
-    def __init__(self, pipe, elog_type, login_data, file, params):
-        self.upload_id = str(uuid.uuid1())
-        self.elog_type = elog_type
-        self.login_data = login_data
+    def __init__(self, pipe, account_id, file, params):
+        logging.debug('upload process init start')
+        logging.debug('upload process super init call')
+        multiprocessing.Process.__init__(self)
+        account = DB.get_object('accounts', {'account_id': account_id})
+        self.elog_type = account['elog']
+        self.login_data = account['login_data']
+        upload_rec = DB.get_object('uploads', {'account_id': account_id}, create=True)
+        logging.debug('upload db record created')
+        logging.debug(upload_rec)
+        self.upload_id = upload_rec['upload_id']
+        logging.debug('upload id: ' + str(self.upload_id))
         self.file = file
         self.params = params
-        self.status_file_path = CONF['web']['root'] + '/uploads/' + self.upload_id
+        self.status_file_path = CONF['web']['root'] + '/uploads/' + str(self.upload_id)
         self.__progress = 0
         self.__state = 'init'
         self.__pipe = pipe
         self.__export_status()
+        logging.debug('upload process status file init')
         self.__cancel_event = threading.Event()
-        super().__init__(self)
+        logging.debug('upload process init completed')
 
     def on_pipe_data(self, data):
         if data == 'cancel':
@@ -90,7 +102,7 @@ class UploadProcess(multiprocessing.Process):
     @state.setter
     def state(self, value):
         if self.__state != value:
-            logging.debug('upload ' + self.upload_id + ' state:')
+            logging.debug('upload ' + str(self.upload_id) + ' state:')
             logging.debug(self.state)
             self.__state = value
             self.__export_status()
@@ -110,13 +122,13 @@ class UploadProcess(multiprocessing.Process):
             raise CancelledError('The upload was cancelled')
 
     def upload_callback(self, progress):
-        logging.debug('upload ' + self.upload_id + ' progress:')
+        logging.debug('upload ' + str(self.upload_id) + ' progress:')
         logging.debug(progress)
         self.progress = progress
 
-    def __call__(self):
+    def run(self):
         try:
-            logging.debug('upload ' + self.upload_id + ' start')
+            logging.debug('upload ' + str(self.upload_id) + ' start')
             pipe_listener = PipeListener(self.__pipe, self.on_pipe_data)
             pipe_listener.start()
             self.state = 'login'
@@ -143,20 +155,24 @@ class UploadProcess(multiprocessing.Process):
 def conn_worker(conn, _up=UPLOAD_PROCESSES):
     logging.debug('Connection received')
     data = conn.recv()
-    logging.debug('Received data:')
-    logging.debug(data)
     if data[0] == 'upload':
+        logging.debug('start upload')
         pipe_process, pipe_connector = multiprocessing.Pipe()
+        logging.debug('pipes created')
         upload_process = UploadProcess(pipe_process, *data[1])
+        logging.debug('upload process created, id: ' + str(upload_process.upload_id))
         upload_connector = UploadConnector(pipe_connector, upload_process)
+        logging.debug('upload connector created')
         _up[upload_process.upload_id] = {\
             'connector': upload_connector,\
             'state': 'init'}
         upload_process.start()
         upload_connector.start()
+        logging.debug('upload process started')
         conn.send(upload_process.upload_id)
+        logging.debug('id sent to client')
     elif data[0] == 'cancel':
-        upload_id = data[0]
+        upload_id = data[1]
         error = None
         if upload_id in _up:
             upload = _up[upload_id]

@@ -111,7 +111,7 @@ class ELog():
         if self.type == 'dev.cfmrda':
             data.update({
                 'stationCallsignFieldEnable': True,
-                'rdaFieldEnable': True,
+                'rdaFieldEnable': False,
                 'token': self.auth_token,
                 'files': [file]
                 })
