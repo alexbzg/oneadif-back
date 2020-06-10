@@ -139,29 +139,59 @@ def account():
             raise Exception('Account delete failed')
     return ok_response()
 
-@APP.route('/api/upload', methods=['POST', 'DELETE'])
+@APP.route('/api/upload', methods=['POST'])
 @validate(request_schema='upload', token_schema='auth', login=True)
 def upload():
     req_data = request.get_json()
     uploads = {}
-    for upload_data in req_data['uploads']:
+    for upload_data in req_data['uploads']:        
         account_id = upload_data['account_id']
-        with upload_client() as conn:
-            conn.send(('upload', (account_id, req_data['file'], upload_data['params'])))
-            uploads[account_id] = conn.recv()
+        if DB.get_object('accounts', {'account_id': account_id, 'login': req_data['login']},\
+            create=False):
+            with upload_client() as conn:
+                conn.send(('upload', (account_id, req_data['file'], upload_data['params'])))
+                uploads[account_id] = conn.recv()
 
     return jsonify(uploads)
 
-@APP.route('/api/upload_cancel', methods=['POST', 'DELETE'])
-@validate(request_schema='uploadCancel', token_schema='auth', login=True)
+@APP.route('/api/uploads_list', methods=['POST'])
+@validate(token_schema='auth', login=True)
+def uploads_list():
+    req_data = request.get_json()
+    uploads = DB.execute("""
+        select upload_id, elog, login_data, state
+        from uploads join accounts on uploads.account_id = accounts.account_id
+        where accounts.login = %(login)s""", req_data, keys=True)
+    return jsonify(uploads)
+
+@APP.route('/api/uploads_list', methods=['DELETE'])
+@validate(request_schema='uploads_list_delete', token_schema='auth', login=True)
+def uploads_list_delete():
+    req_data = request.get_json()
+    if DB.execute("""
+        delete from uploads 
+        where upload_id = %(uploadId)s and account_id in
+            (select account_id 
+            from accounts 
+            where login = %(login)s)""", req_data):
+        return ok_response()
+    else:
+        raise Exception('Upload record delete failed.')
+
+@APP.route('/api/upload', methods=['DELETE'])
+@validate(request_schema='upload_cancel', token_schema='auth', login=True)
 def upload_cancel():
     req_data = request.get_json()
-    upload_id = req_data['id']
-    logging.debug('upload cancel request: ' + upload_id)
-    with upload_client() as conn:
-        conn.send(('cancel', upload_id))
-        rsp = conn.recv()
-        return jsonify(rsp)
+    if DB.execute("""select upload_id
+        from uploads join accounts on uploads.account_id = accounts.account_id
+        where upload_id = %(upload_id)s and login = %(login)s""", req_data):
+        with upload_client() as conn:
+            conn.send(('cancel', req_data['upload_id']))
+            rsp = conn.recv()
+            return jsonify(rsp)
+    else:
+        return bad_request('Загрузка не найдена.\n' +\
+                'Upload not found')
 
 def send_user_data(user_data, create=False):
     """returns user data with auth token as json response"""

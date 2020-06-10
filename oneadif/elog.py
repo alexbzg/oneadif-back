@@ -109,11 +109,15 @@ class ELog():
         data_string = None
 
         if self.type == 'dev.cfmrda':
+            file_entry = {}
+            file_entry.update(file)
+            file_entry['rda'] = data['rda']
+            del data['rda']
             data.update({
                 'stationCallsignFieldEnable': True,
                 'rdaFieldEnable': False,
                 'token': self.auth_token,
-                'files': [file]
+                'files': [file_entry]
                 })
             url = 'https://dev.cfmrda.ru/aiohttp/adif'
             data_string = json.dumps(data)
@@ -124,6 +128,8 @@ class ELog():
             rsp.raise_for_status()
             logging.debug(rsp.text)
             return True
+        except CancelledError:
+            raise CancelledError
         except Exception:
             logging.exception(self.type + ' upload error')
             return False

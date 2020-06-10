@@ -50,7 +50,7 @@ class UploadConnector(PipeListener):
         if state in ['login failed', 'upload failed', 'success', 'cancelled']:
             self.__upload_process.join()
         DB.param_update('uploads', {'upload_id': self.upload_id}, {'state': state})
-        logging.debug('upload ' + self.upload_id + ' state: ' + state)
+        logging.debug('upload ' + str(self.upload_id) + ' state: ' + state)
 
 class UploadProcess(multiprocessing.Process):
     STATES = {\

@@ -18,6 +18,9 @@ from secret import get_secret, create_token
 from db import DBConn, splice_params
 from conf import CONF
 
+sys.path.append('test')
+from test_uploads import create_upload_data
+
 DB = DBConn(CONF.items('db'))
 DB.verbose = True
 DB.connect()
@@ -202,30 +205,27 @@ def test_account():
     req = requests.post(API_URI + 'account', json=post_data)
 
 def test_upload():
-    token_data = {
-        'login': LOGIN,
-        'type': 'auth'}
-    filename = 'RZ3DC MO-72.adi'
-    adif = None
-    with open(os.path.dirname(os.path.abspath(__file__)) + '/adif/' + filename, 'rb') as _tf:
-        _adif = _tf.read()
-        adif = ',' + base64.b64encode(_adif).decode()
-    file = {'name': filename, 'file': adif}
-    token = _create_token(token_data)
-    post_data = {'login': LOGIN, 
-        'token': token, 
-        'file': file,
-        'uploads': [{
-            'elog': 'dev.cfmrda', 
-            'params': {
-                'stationCallsignField': 'OPERATOR',
-                'rdaField': 'STATE'
-            }}]
-            }
-    req = requests.post(API_URI + 'upload', json=post_data)
+    upload_data = create_upload_data()
+    upload_data['token'] = _create_token({'login': upload_data['login'], 'type': 'auth'})
+
+    def start_upload(upload_data):
+        req = requests.post(API_URI + 'upload', json=upload_data)
+        logging.debug(req.text)
+        req.raise_for_status()
+        upload_ids = req.json()
+        assert isinstance(upload_ids, dict)
+        account_id = upload_data['uploads'][0]['account_id']
+        return upload_ids[str(account_id)]
+       
+    upload_id = start_upload(upload_data)
+    req = requests.delete(API_URI + 'upload',\
+            json={'login': upload_data['login'],\
+                'token': upload_data['token'],\
+                'upload_id': upload_id})
     logging.debug(req.text)
     req.raise_for_status()
-    upload_id = req.json()['dev.cfmrda']
+    return
+
     state = None
     progress = 0
     data = None
