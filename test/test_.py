@@ -224,12 +224,13 @@ def test_upload():
                 'upload_id': upload_id})
     logging.debug(req.text)
     req.raise_for_status()
-    return
+
+    upload_id = start_upload(upload_data)
 
     state = None
     progress = 0
     data = None
-    status_uri = CONF['web']['address'] + '/uploads/' + upload_id
+    status_uri = CONF['web']['address'] + '/uploads/' + str(upload_id)
     while state not in (2, 4, 5):
         try:
             status_rsp = requests.get(status_uri)
@@ -240,20 +241,52 @@ def test_upload():
                 if state != _state:
                     state = _state
                     logging.debug('State: ' + str(state))
-                    if state == 3:
-                        cncl_rsp = requests.post(API_URI + 'upload_cancel',\
-                            json={\
-                                'login': LOGIN,
-                                'token': token,
-                                'id': upload_id})
-                        logging.debug(cncl_rsp.status_code)
-                        logging.debug(cncl_rsp.text)
-                        break
                 if progress != _progress:
                     progress = _progress
                     logging.debug('Progress: ' + str(progress))
                 status_rsp.raise_for_status()
+
+                if progress > 99 and state not in (2, 4, 5):
+                    time.sleep(30)
+
         except Exception:
             logging.exception('bad upload status response')
 
+def test_uploads_list():
+    def post(update_token=None, update_post=None, delete=False):
+        token_data = {'login': LOGIN, 'type': 'auth'}
+        update_data(token_data, update_token)
+        post_data = {'login': LOGIN, 'token': _create_token(token_data)}
+        update_data(post_data, update_post)
+        if delete:
+            return requests.delete(API_URI + 'uploads_list', json=post_data)
+        else:
+            return requests.post(API_URI + 'uploads_list', json=post_data)
+
+    req = post()
+    logging.debug(req.text)
+    req.raise_for_status()
+    uploads = req.json()
+    assert uploads
+    uploads_ids = [x['upload_id'] for x in uploads]
+    
+    req = post(update_token={'login': LOGIN + '_'}, update_post={'login': LOGIN + '_'})
+    logging.debug(req.text)
+    req.raise_for_status()
+    uploads = req.json()
+    assert not uploads
+
+    req = post(update_post={'upload_id': uploads_ids[0]}, delete=True)
+    logging.debug(req.text)
+    req.raise_for_status()
+    uploads = post().json()
+    assert uploads_ids[0] not in [x['upload_id'] for x in uploads]
+
+    req = post(update_token={'login': LOGIN + '_'}, 
+            update_post={'upload_id': uploads_ids[1], 'login': LOGIN + '_'}, 
+            delete=True)
+    logging.debug(req.text)
+    req.raise_for_status()
+    uploads = post().json()
+    assert uploads_ids[1] in [x['upload_id'] for x in uploads]
 

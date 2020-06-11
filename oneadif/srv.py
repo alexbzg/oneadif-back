@@ -165,12 +165,12 @@ def uploads_list():
     return jsonify(uploads)
 
 @APP.route('/api/uploads_list', methods=['DELETE'])
-@validate(request_schema='uploads_list_delete', token_schema='auth', login=True)
+@validate(request_schema='upload_cancel', token_schema='auth', login=True)
 def uploads_list_delete():
     req_data = request.get_json()
     if DB.execute("""
         delete from uploads 
-        where upload_id = %(uploadId)s and account_id in
+        where upload_id = %(upload_id)s and account_id in
             (select account_id 
             from accounts 
             where login = %(login)s)""", req_data):
